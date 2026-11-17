@@ -12,7 +12,7 @@ function BlogDetails() {
     const fetchBlog = async () => {
       try {
         const response = await axios.get(
-          `http://localhost:5000/api/blogs/${id}`
+          `${import.meta.env.VITE_API_URL}/api/blogs/${id}`
         );
         setBlog(response.data);
       } catch (error) {

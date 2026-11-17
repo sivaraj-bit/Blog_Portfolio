@@ -6,9 +6,12 @@ import { useNavigate } from "react-router-dom";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  signOut,
 } from "firebase/auth";
 
 import { auth } from "../firebase";
+
+const API_URL = import.meta.env.VITE_API_URL;
 
 function AdminLogin() {
   const navigate = useNavigate();
@@ -36,19 +39,16 @@ function AdminLogin() {
       setError("");
       setSuccess("");
 
-      // Step 1: Authenticate user with Firebase
       const userCredential = await signInWithEmailAndPassword(
         auth,
         email.trim(),
         password
       );
 
-      // Step 2: Get Firebase ID token
       const token = await userCredential.user.getIdToken();
 
-      // Step 3: Verify admin permission with backend
       await axios.post(
-        "http://localhost:5000/api/auth/register",
+        `${API_URL}/api/auth/register`,
         {},
         {
           headers: {
@@ -57,7 +57,6 @@ function AdminLogin() {
         }
       );
 
-      // Step 4: Store token and navigate to dashboard
       localStorage.setItem("adminToken", token);
 
       navigate("/admin/dashboard");
@@ -65,6 +64,10 @@ function AdminLogin() {
       console.error("Login Error:", err);
 
       localStorage.removeItem("adminToken");
+
+      if (auth.currentUser) {
+        await signOut(auth).catch(console.error);
+      }
 
       setError(
         err.response?.data?.message ||
@@ -85,19 +88,16 @@ function AdminLogin() {
       setError("");
       setSuccess("");
 
-      // Step 1: Create Firebase account
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         signupEmail.trim(),
         signupPassword
       );
 
-      // Step 2: Get Firebase ID token
       const token = await userCredential.user.getIdToken();
 
-      // Step 3: Verify admin permission with backend
       await axios.post(
-        "http://localhost:5000/api/auth/register",
+        `${API_URL}/api/auth/register`,
         {},
         {
           headers: {
@@ -106,9 +106,6 @@ function AdminLogin() {
         }
       );
 
-      // Step 4: Sign out after signup
-      // User can now sign in through the login form
-      const { signOut } = await import("firebase/auth");
       await signOut(auth);
 
       setEmail(signupEmail.trim());
@@ -120,6 +117,10 @@ function AdminLogin() {
       setSuccess("Account created successfully! Please sign in.");
     } catch (err) {
       console.error("Signup Error:", err);
+
+      if (auth.currentUser) {
+        await signOut(auth).catch(console.error);
+      }
 
       setError(
         err.response?.data?.message ||
@@ -162,7 +163,6 @@ function AdminLogin() {
 
   return (
     <div className="min-h-screen bg-[#FAF3EA] flex items-center justify-center px-5 py-10 overflow-hidden">
-
       <style>{`
         .flip-scene {
           perspective: 1200px;
@@ -240,7 +240,6 @@ function AdminLogin() {
 
           {/* LOGIN PAGE */}
           <div className="flip-face p-8 sm:p-11 flex flex-col justify-center">
-
             <div className="text-center mb-9">
               <div className="mx-auto mb-5 w-16 h-16 rounded-full flex items-center justify-center text-[#783F32] shadow-[6px_6px_12px_#dfd9d1,-6px_-6px_12px_#ffffff]">
                 <span className="text-3xl">✦</span>
@@ -256,7 +255,6 @@ function AdminLogin() {
             </div>
 
             <form onSubmit={handleLogin} className="space-y-6">
-
               <div>
                 <label className="block text-sm font-semibold text-[#783F32] mb-3">
                   Email Address
@@ -352,7 +350,6 @@ function AdminLogin() {
 
           {/* SIGNUP PAGE */}
           <div className="flip-face flip-back p-8 sm:p-11 flex flex-col justify-center">
-
             <div className="text-center mb-9">
               <div className="mx-auto mb-5 w-16 h-16 rounded-full flex items-center justify-center text-[#783F32] shadow-[6px_6px_12px_#dfd9d1,-6px_-6px_12px_#ffffff]">
                 <span className="text-3xl">✧</span>
@@ -368,7 +365,6 @@ function AdminLogin() {
             </div>
 
             <form onSubmit={handleSignup} className="space-y-6">
-
               <div>
                 <label className="block text-sm font-semibold text-[#783F32] mb-3">
                   Email Address

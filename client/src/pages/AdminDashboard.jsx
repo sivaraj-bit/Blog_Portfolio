@@ -1,11 +1,12 @@
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "../firebase";
 
-const API_URL = "http://localhost:5000/api/blogs";
+const API_URL = import.meta.env.VITE_API_URL;
+const BLOGS_API_URL = `${API_URL}/api/blogs`;
 
 const initialForm = {
   title: "",
@@ -21,12 +22,14 @@ function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(initialForm);
+  const [search, setSearch] = useState("");
 
-  // Get a fresh Firebase ID token for protected API requests
+  // Get a fresh Firebase ID token
   const getAuthConfig = async () => {
     const user = auth.currentUser;
 
@@ -35,7 +38,6 @@ function AdminDashboard() {
     }
 
     const token = await user.getIdToken();
-
     localStorage.setItem("adminToken", token);
 
     return {
@@ -45,7 +47,7 @@ function AdminDashboard() {
     };
   };
 
-  // Check Firebase authentication and fetch blogs
+  // Check authentication and fetch blogs
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
@@ -60,13 +62,10 @@ function AdminDashboard() {
         setError("");
 
         const config = await getAuthConfig();
-        const response = await axios.get(API_URL, config);
-
+        const response = await axios.get(BLOGS_API_URL, config);
         const data = response.data;
 
-        setBlogs(
-          Array.isArray(data) ? data : data.blogs || []
-        );
+        setBlogs(Array.isArray(data) ? data : data.blogs || []);
       } catch (err) {
         setError(
           err.response?.data?.message ||
@@ -81,12 +80,25 @@ function AdminDashboard() {
     return () => unsubscribe();
   }, [navigate]);
 
+  // Search blogs
+  const filteredBlogs = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    if (!query) return blogs;
+
+    return blogs.filter((blog) =>
+      blog.title?.toLowerCase().includes(query) ||
+      blog.category?.toLowerCase().includes(query) ||
+      blog.content?.toLowerCase().includes(query)
+    );
+  }, [blogs, search]);
+
   // Handle form inputs
   const handleChange = (e) => {
-    setForm({
-      ...form,
+    setForm((prev) => ({
+      ...prev,
       [e.target.name]: e.target.value,
-    });
+    }));
   };
 
   // Open create form
@@ -94,7 +106,10 @@ function AdminDashboard() {
     setEditingId(null);
     setForm(initialForm);
     setError("");
+    setSuccess("");
     setShowForm(true);
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   // Open edit form
@@ -109,7 +124,9 @@ function AdminDashboard() {
     });
 
     setError("");
+    setSuccess("");
     setShowForm(true);
+
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -120,12 +137,13 @@ function AdminDashboard() {
     try {
       setSaving(true);
       setError("");
+      setSuccess("");
 
       const config = await getAuthConfig();
 
       if (editingId) {
         const response = await axios.put(
-          `${API_URL}/${editingId}`,
+          `${BLOGS_API_URL}/${editingId}`,
           form,
           config
         );
@@ -137,9 +155,11 @@ function AdminDashboard() {
             blog._id === editingId ? updatedBlog : blog
           )
         );
+
+        setSuccess("Your story has been updated successfully.");
       } else {
         const response = await axios.post(
-          API_URL,
+          BLOGS_API_URL,
           form,
           config
         );
@@ -147,11 +167,14 @@ function AdminDashboard() {
         const newBlog = response.data.blog || response.data;
 
         setBlogs((prev) => [newBlog, ...prev]);
+        setSuccess("Your story has been published successfully.");
       }
 
       setForm(initialForm);
       setEditingId(null);
       setShowForm(false);
+
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       setError(
         err.response?.data?.message ||
@@ -166,26 +189,26 @@ function AdminDashboard() {
   // Delete blog
   const handleDelete = async (id) => {
     const confirmed = window.confirm(
-      "Are you sure you want to delete this blog?"
+      "Are you sure you want to delete this story? This action cannot be undone."
     );
 
     if (!confirmed) return;
 
     try {
       setError("");
+      setSuccess("");
 
       const config = await getAuthConfig();
 
-      await axios.delete(`${API_URL}/${id}`, config);
+      await axios.delete(`${BLOGS_API_URL}/${id}`, config);
 
-      setBlogs((prev) =>
-        prev.filter((blog) => blog._id !== id)
-      );
+      setBlogs((prev) => prev.filter((blog) => blog._id !== id));
+      setSuccess("Story deleted successfully.");
     } catch (err) {
       setError(
         err.response?.data?.message ||
           err.message ||
-          "Unable to delete blog."
+          "Unable to delete story."
       );
     }
   };
@@ -201,6 +224,7 @@ function AdminDashboard() {
     }
   };
 
+  // Close form
   const closeForm = () => {
     setShowForm(false);
     setEditingId(null);
@@ -210,132 +234,171 @@ function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-[#FAF3EA] text-[#3D302B]">
+      <style>{`
+        @keyframes appear {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .page-enter {
+          animation: appear 0.5s ease both;
+        }
+
+        .story-enter {
+          animation: appear 0.4s ease both;
+        }
+
+        .editor-input {
+          transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .editor-input:focus {
+          border-color: #783F32;
+          box-shadow: 0 0 0 3px rgba(120, 63, 50, 0.08);
+          outline: none;
+        }
+
+        .story-row {
+          transition: background-color 0.2s ease;
+        }
+
+        .story-row:hover {
+          background-color: rgba(230, 185, 159, 0.12);
+        }
+
+        .action-link {
+          transition: color 0.2s ease;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .page-enter,
+          .story-enter {
+            animation: none;
+          }
+
+          .editor-input,
+          .story-row,
+          .action-link {
+            transition: none;
+          }
+        }
+      `}</style>
 
       {/* HEADER */}
-      <header className="border-b border-[#E6B99F]/50 bg-[#FAF3EA]">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-5 flex items-center justify-between">
-
+      <header className="border-b border-[#E6B99F]/70">
+        <div className="max-w-6xl mx-auto px-5 sm:px-8 h-[76px] flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-[#783F32]">
+            <h1 className="font-serif text-2xl tracking-tight text-[#783F32]">
               The Journal
             </h1>
-
-            <p className="text-xs text-[#9A8175] mt-1 tracking-widest uppercase">
-              Publishing Studio
+            <p className="text-[10px] tracking-[0.2em] uppercase text-[#9A8175] mt-0.5">
+              Publishing studio
             </p>
           </div>
 
-          <div className="flex items-center gap-5">
+          <nav className="flex items-center gap-5 sm:gap-7">
             <button
               onClick={() => navigate("/")}
-              className="hidden sm:block text-sm text-[#783F32] hover:text-[#B96F50]"
+              className="hidden sm:block text-sm text-[#78645A] hover:text-[#783F32] transition-colors"
             >
-              View Website ↗
+              View website ↗
             </button>
 
             <button
               onClick={handleLogout}
-              className="text-sm font-semibold text-[#783F32] border border-[#B96F50]/40 px-4 py-2 rounded-lg hover:bg-[#783F32] hover:text-white transition"
+              className="text-sm text-[#783F32] border-b border-[#B96F50] pb-1 hover:text-[#B96F50] transition-colors"
             >
-              Logout
+              Log out
             </button>
-          </div>
-
+          </nav>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 md:px-10 py-12">
-
-        {/* PAGE INTRO */}
-        <section className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 mb-12">
-
+      <main className="max-w-6xl mx-auto px-5 sm:px-8 py-12 sm:py-16">
+        {/* INTRODUCTION */}
+        <section className="page-enter flex flex-col sm:flex-row sm:items-end justify-between gap-6 mb-14">
           <div>
-            <p className="text-sm text-[#B96F50] font-medium mb-3">
-              YOUR WORKSPACE
+            <p className="text-xs uppercase tracking-[0.2em] text-[#B96F50] mb-4">
+              Your writing space
             </p>
 
-            <h2 className="text-4xl md:text-5xl font-bold text-[#783F32] tracking-tight">
-              Dashboard
+            <h2 className="font-serif text-4xl sm:text-5xl text-[#783F32] tracking-tight">
+              Good stories begin here.
             </h2>
 
-            <p className="text-[#9A8175] mt-3">
-              Manage your stories and keep your journal growing.
+            <p className="text-sm sm:text-base text-[#927B6F] mt-4 max-w-lg leading-7">
+              Create, edit and keep track of the ideas you want to share with the world.
             </p>
           </div>
 
           <button
             onClick={openCreateForm}
-            className="bg-[#783F32] text-white px-6 py-3 rounded-lg text-sm font-semibold hover:bg-[#B96F50] transition w-fit"
+            className="shrink-0 bg-[#783F32] text-white px-6 py-3 text-sm hover:bg-[#9A5543] transition-colors"
           >
-            + Write a Story
+            + Write a story
           </button>
-
         </section>
 
-        {/* STATISTICS */}
-        <section className="grid grid-cols-1 sm:grid-cols-3 border-y border-[#E6B99F] mb-12">
-
-          <div className="py-7 sm:pr-8">
-            <p className="text-sm text-[#9A8175]">
-              Total Stories
-            </p>
-
-            <h3 className="text-4xl font-bold text-[#783F32] mt-2">
-              {blogs.length}
-            </h3>
+        {/* NOTIFICATIONS */}
+        {success && (
+          <div className="page-enter mb-7 py-3 border-y border-[#B96F50]/40 text-sm text-[#783F32] flex justify-between gap-4">
+            <span>{success}</span>
+            <button
+              onClick={() => setSuccess("")}
+              aria-label="Dismiss notification"
+              className="text-lg leading-none hover:text-[#B96F50]"
+            >
+              ×
+            </button>
           </div>
+        )}
 
-          <div className="py-7 sm:px-8 border-t sm:border-t-0 sm:border-l border-[#E6B99F]">
-            <p className="text-sm text-[#9A8175]">
-              Categories
-            </p>
-
-            <h3 className="text-4xl font-bold text-[#783F32] mt-2">
-              {new Set(blogs.map((blog) => blog.category).filter(Boolean)).size}
-            </h3>
+        {error && !showForm && (
+          <div className="page-enter mb-7 py-3 border-y border-red-200 text-sm text-red-700">
+            {error}
           </div>
+        )}
 
-          <div className="py-7 sm:pl-8 border-t sm:border-t-0 sm:border-l border-[#E6B99F]">
-            <p className="text-sm text-[#9A8175]">
-              Latest Story
-            </p>
-
-            <h3 className="text-lg font-semibold text-[#783F32] mt-3">
-              {blogs.length > 0 ? "Published" : "No stories yet"}
-            </h3>
-          </div>
-
-        </section>
-
-        {/* CREATE / EDIT FORM */}
+        {/* EDITOR */}
         {showForm && (
-          <section className="bg-white/60 border border-[#E6B99F] rounded-2xl p-6 md:p-9 mb-12">
-
-            <div className="flex justify-between items-center mb-7">
+          <section
+            id="blog-form"
+            className="page-enter mb-16 border-y border-[#D8AE98] py-8 sm:py-10"
+          >
+            <div className="flex justify-between items-start gap-4 mb-9">
               <div>
-                <p className="text-xs tracking-widest text-[#B96F50] uppercase mb-2">
-                  {editingId ? "EDIT STORY" : "NEW STORY"}
+                <p className="text-xs uppercase tracking-[0.2em] text-[#B96F50] mb-3">
+                  {editingId ? "Editing" : "New entry"}
                 </p>
 
-                <h3 className="text-2xl font-bold text-[#783F32]">
-                  {editingId ? "Update your story" : "Write something new"}
+                <h3 className="font-serif text-3xl sm:text-4xl text-[#783F32]">
+                  {editingId ? "Shape your story." : "Put your thoughts into words."}
                 </h3>
+
+                <p className="text-sm text-[#927B6F] mt-3">
+                  Take your time. Every detail matters.
+                </p>
               </div>
 
               <button
                 onClick={closeForm}
-                className="text-[#9A8175] hover:text-[#783F32] text-2xl"
                 aria-label="Close form"
+                className="text-2xl text-[#927B6F] hover:text-[#783F32]"
               >
                 ×
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
-
+            <form onSubmit={handleSubmit} className="space-y-7">
               <div>
-                <label className="block text-sm font-semibold text-[#783F32] mb-2">
-                  Story Title
+                <label className="block text-sm text-[#783F32] mb-2">
+                  Title
                 </label>
 
                 <input
@@ -345,14 +408,13 @@ function AdminDashboard() {
                   onChange={handleChange}
                   placeholder="Give your story a title"
                   required
-                  className="w-full bg-[#FAF3EA] border border-[#E6B99F] rounded-lg px-4 py-3 outline-none focus:border-[#783F32]"
+                  className="editor-input w-full bg-white/50 border border-[#D8AE98] px-4 py-3.5 text-sm text-[#3D302B] placeholder:text-[#B9A59A]"
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-semibold text-[#783F32] mb-2">
+                  <label className="block text-sm text-[#783F32] mb-2">
                     Category
                   </label>
 
@@ -360,7 +422,7 @@ function AdminDashboard() {
                     name="category"
                     value={form.category}
                     onChange={handleChange}
-                    className="w-full bg-[#FAF3EA] border border-[#E6B99F] rounded-lg px-4 py-3 outline-none focus:border-[#783F32]"
+                    className="editor-input w-full bg-white/50 border border-[#D8AE98] px-4 py-3.5 text-sm text-[#3D302B]"
                   >
                     <option>Technology</option>
                     <option>Programming</option>
@@ -373,8 +435,8 @@ function AdminDashboard() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-[#783F32] mb-2">
-                    Cover Image URL
+                  <label className="block text-sm text-[#783F32] mb-2">
+                    Cover image URL
                   </label>
 
                   <input
@@ -383,184 +445,221 @@ function AdminDashboard() {
                     value={form.image}
                     onChange={handleChange}
                     placeholder="https://example.com/image.jpg"
-                    className="w-full bg-[#FAF3EA] border border-[#E6B99F] rounded-lg px-4 py-3 outline-none focus:border-[#783F32]"
+                    className="editor-input w-full bg-white/50 border border-[#D8AE98] px-4 py-3.5 text-sm text-[#3D302B] placeholder:text-[#B9A59A]"
                   />
                 </div>
-
               </div>
 
+              {form.image && (
+                <div className="page-enter">
+                  <p className="text-xs text-[#927B6F] mb-2">
+                    Image preview
+                  </p>
+
+                  <img
+                    src={form.image}
+                    alt="Story cover preview"
+                    className="w-full max-w-sm h-44 object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                </div>
+              )}
+
               <div>
-                <label className="block text-sm font-semibold text-[#783F32] mb-2">
-                  Your Story
+                <label className="block text-sm text-[#783F32] mb-2">
+                  Content
                 </label>
 
                 <textarea
                   name="content"
                   value={form.content}
                   onChange={handleChange}
-                  placeholder="Start writing your story..."
-                  rows={8}
+                  placeholder="Start writing here..."
+                  rows={10}
                   required
-                  className="w-full bg-[#FAF3EA] border border-[#E6B99F] rounded-lg px-4 py-3 outline-none focus:border-[#783F32] resize-y"
+                  className="editor-input w-full bg-white/50 border border-[#D8AE98] px-4 py-4 text-sm text-[#3D302B] placeholder:text-[#B9A59A] resize-y leading-7"
                 />
               </div>
 
               {error && (
-                <p className="text-sm text-red-600">{error}</p>
+                <p className="text-sm text-red-700 border-l-2 border-red-400 pl-3">
+                  {error}
+                </p>
               )}
 
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap items-center gap-5 pt-2">
                 <button
                   type="submit"
                   disabled={saving}
-                  className="bg-[#783F32] text-white px-7 py-3 rounded-lg font-semibold text-sm hover:bg-[#B96F50] transition disabled:opacity-60"
+                  className="bg-[#783F32] text-white px-7 py-3 text-sm hover:bg-[#9A5543] disabled:opacity-60 transition-colors"
                 >
                   {saving
                     ? "Saving..."
                     : editingId
-                    ? "Update Story"
-                    : "Publish Story"}
+                    ? "Save changes"
+                    : "Publish story"}
                 </button>
 
                 <button
                   type="button"
                   onClick={closeForm}
-                  className="border border-[#B96F50]/50 text-[#783F32] px-7 py-3 rounded-lg text-sm hover:bg-[#E6B99F]/30 transition"
+                  className="text-sm text-[#927B6F] hover:text-[#783F32] transition-colors"
                 >
                   Cancel
                 </button>
               </div>
-
             </form>
           </section>
         )}
 
-        {/* BLOG LIST */}
-        <section>
-
-          <div className="flex items-center justify-between border-b border-[#E6B99F] pb-5 mb-6">
+        {/* STORY LIBRARY */}
+        <section className="page-enter">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-5 border-b border-[#D8AE98] pb-5 mb-6">
             <div>
-              <p className="text-xs tracking-widest text-[#B96F50] uppercase mb-2">
-                CONTENT LIBRARY
+              <p className="text-xs uppercase tracking-[0.2em] text-[#B96F50] mb-3">
+                The collection
               </p>
 
-              <h3 className="text-2xl font-bold text-[#783F32]">
-                Your Stories
+              <h3 className="font-serif text-3xl text-[#783F32]">
+                Your stories
               </h3>
             </div>
 
-            <span className="text-sm text-[#9A8175]">
-              {blogs.length} posts
-            </span>
+            <p className="text-sm text-[#927B6F]">
+              {blogs.length} {blogs.length === 1 ? "story" : "stories"} published
+            </p>
           </div>
 
-          {error && !showForm && (
-            <p className="text-sm text-red-600 mb-5">{error}</p>
-          )}
+          {/* SEARCH */}
+          <div className="mb-7 max-w-md">
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search your stories..."
+              aria-label="Search stories"
+              className="editor-input w-full bg-transparent border-b border-[#D8AE98] py-3 text-sm text-[#3D302B] placeholder:text-[#A99488]"
+            />
+          </div>
 
+          {/* LOADING */}
           {loading ? (
-            <p className="text-[#9A8175] py-12 text-center">
+            <div className="py-20 text-center text-sm text-[#927B6F]">
               Loading your stories...
-            </p>
+            </div>
           ) : blogs.length === 0 ? (
-            <div className="text-center py-20 border-b border-[#E6B99F]">
-              <p className="text-3xl mb-4">✍</p>
-
-              <h4 className="text-xl font-semibold text-[#783F32]">
-                Your journal is waiting.
+            /* EMPTY STATE */
+            <div className="py-16 border-y border-[#D8AE98]/70 text-center">
+              <h4 className="font-serif text-2xl text-[#783F32]">
+                A blank page is a good beginning.
               </h4>
 
-              <p className="text-sm text-[#9A8175] mt-2">
-                Publish your first story and it will appear here.
+              <p className="text-sm text-[#927B6F] mt-3">
+                Your first story is waiting to be written.
               </p>
 
               <button
                 onClick={openCreateForm}
-                className="mt-6 text-[#B96F50] font-semibold text-sm hover:text-[#783F32]"
+                className="mt-6 text-sm text-[#B96F50] border-b border-[#B96F50] pb-1 hover:text-[#783F32]"
               >
                 Write your first story →
               </button>
             </div>
-          ) : (
-            <div className="divide-y divide-[#E6B99F]/70">
+          ) : filteredBlogs.length === 0 ? (
+            /* NO SEARCH RESULTS */
+            <div className="py-16 text-center border-y border-[#D8AE98]/70">
+              <p className="font-serif text-xl text-[#783F32]">
+                No stories found.
+              </p>
 
-              {blogs.map((blog) => (
+              <p className="text-sm text-[#927B6F] mt-2">
+                Try a different search term.
+              </p>
+
+              <button
+                onClick={() => setSearch("")}
+                className="mt-4 text-sm text-[#B96F50] border-b border-[#B96F50] pb-1"
+              >
+                Clear search
+              </button>
+            </div>
+          ) : (
+            /* BLOG LIST */
+            <div>
+              {filteredBlogs.map((blog) => (
                 <article
                   key={blog._id}
-                  className="py-6 flex flex-col sm:flex-row gap-5 sm:items-center"
+                  className="story-row story-enter flex flex-col sm:flex-row gap-5 sm:gap-7 py-7 px-3 border-b border-[#E6B99F]/70"
                 >
-
                   {blog.image && (
                     <img
                       src={blog.image}
                       alt={blog.title}
-                      className="w-full sm:w-32 h-44 sm:h-24 object-cover rounded-lg"
+                      className="w-full sm:w-32 h-44 sm:h-28 object-cover shrink-0"
                     />
                   )}
 
                   <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-3 mb-3">
+                      <span className="text-[10px] uppercase tracking-[0.16em] text-[#B96F50]">
+                        {blog.category || "General"}
+                      </span>
 
-                    <p className="text-xs uppercase tracking-widest text-[#B96F50] mb-2">
-                      {blog.category || "General"}
-                    </p>
+                      {blog.createdAt && (
+                        <>
+                          <span className="text-[#C6A18F]">/</span>
+                          <span className="text-xs text-[#A18B7F]">
+                            {new Date(blog.createdAt).toLocaleDateString(
+                              "en-IN",
+                              {
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                              }
+                            )}
+                          </span>
+                        </>
+                      )}
+                    </div>
 
-                    <h4 className="text-xl font-semibold text-[#783F32] mb-2">
+                    <h4 className="font-serif text-xl sm:text-2xl text-[#783F32] leading-snug">
                       {blog.title}
                     </h4>
 
-                    <p className="text-sm text-[#9A8175] line-clamp-2">
+                    <p className="text-sm text-[#927B6F] mt-2 leading-6 line-clamp-2">
                       {blog.content}
                     </p>
-
-                    <p className="text-xs text-[#A18B7F] mt-3">
-                      {blog.createdAt
-                        ? new Date(blog.createdAt).toLocaleDateString(
-                            "en-IN",
-                            {
-                              day: "numeric",
-                              month: "short",
-                              year: "numeric",
-                            }
-                          )
-                        : ""}
-                    </p>
-
                   </div>
 
-                  <div className="flex items-center gap-5 sm:ml-auto">
+                  <div className="flex sm:flex-col items-center sm:items-end justify-start sm:justify-center gap-5 sm:gap-3 sm:min-w-[65px]">
                     <button
                       onClick={() => handleEdit(blog)}
-                      className="text-sm font-semibold text-[#B96F50] hover:text-[#783F32]"
+                      className="action-link text-sm text-[#B96F50] hover:text-[#783F32]"
                     >
                       Edit
                     </button>
 
                     <button
                       onClick={() => handleDelete(blog._id)}
-                      className="text-sm font-semibold text-red-700 hover:text-red-900"
+                      className="action-link text-sm text-[#A65A4D] hover:text-red-800"
                     >
                       Delete
                     </button>
                   </div>
-
                 </article>
               ))}
-
             </div>
           )}
-
         </section>
 
-      </main>
-
-      {/* FOOTER */}
-      <footer className="border-t border-[#E6B99F]/60 mt-16">
-        <div className="max-w-7xl mx-auto px-6 md:px-10 py-6 flex flex-col sm:flex-row justify-between gap-2 text-xs text-[#9A8175]">
+        {/* FOOTER */}
+        <footer className="mt-20 pt-5 border-t border-[#D8AE98]/70 flex flex-col sm:flex-row justify-between gap-2 text-xs text-[#A18B7F]">
           <p>© {new Date().getFullYear()} The Journal</p>
-          <p>Made for stories worth sharing.</p>
-        </div>
-      </footer>
-
+          <p>A space for stories worth sharing.</p>
+        </footer>
+      </main>
     </div>
   );
 }

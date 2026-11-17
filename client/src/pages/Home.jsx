@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
 
+const API_URL = import.meta.env.VITE_API_URL;
+
 function Home() {
   const [blogs, setBlogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -12,7 +14,7 @@ function Home() {
     const fetchBlogs = async () => {
       try {
         const response = await axios.get(
-          "http://localhost:5000/api/blogs"
+          `${API_URL}/api/blogs`
         );
 
         setBlogs(response.data);
