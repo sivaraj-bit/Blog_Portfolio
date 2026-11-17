@@ -4,104 +4,208 @@ const router = express.Router();
 
 const Blog = require("../models/Blog");
 const authMiddleware = require("../middleware/authMiddleware");
+const upload = require("../middleware/upload");
+const cloudinary = require("../config/cloudinary");
 
-// Create a new blog - Admin only
-router.post("/", authMiddleware, async (req, res) => {
-  try {
-    const { title, content, image, category } = req.body;
+// Upload image to Cloudinary
+const uploadToCloudinary = (buffer) => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: "blog-portfolio",
+        transformation: [
+          {
+            width: 1200,
+            height: 800,
+            crop: "limit",
+          },
+        ],
+      },
+      (error, result) => {
+        if (error) {
+          return reject(error);
+        }
 
-    const newBlog = new Blog({
-      title,
-      content,
-      image,
-      category,
-    });
+        resolve(result);
+      }
+    );
 
-    const savedBlog = await newBlog.save();
+    stream.end(buffer);
+  });
+};
 
-    res.status(201).json({
-      message: "Blog created successfully",
-      blog: savedBlog,
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+// CREATE BLOG
+router.post(
+  "/",
+  authMiddleware,
+  upload.single("image"),
+  async (req, res) => {
+    try {
+      const {
+        title,
+        content,
+        category,
+        projectUrl,
+      } = req.body || {};
+
+      if (!title || !content) {
+        return res.status(400).json({
+          message: "Title and content are required.",
+        });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({
+          message: "Please upload a cover image.",
+        });
+      }
+
+      const uploadedImage = await uploadToCloudinary(
+        req.file.buffer
+      );
+
+      const newBlog = new Blog({
+        title,
+        content,
+        category: category || "General",
+        image: uploadedImage.secure_url,
+        projectUrl: projectUrl || "",
+      });
+
+      const savedBlog = await newBlog.save();
+
+      return res.status(201).json({
+        message: "Blog created successfully.",
+        blog: savedBlog,
+      });
+    } catch (error) {
+      console.error("Create blog error:", error);
+
+      return res.status(500).json({
+        message: error.message || "Unable to create blog.",
+      });
+    }
   }
-});
+);
 
-// Get all blogs - Public
+// GET ALL BLOGS (PUBLIC)
 router.get("/", async (req, res) => {
   try {
-    const blogs = await Blog.find().sort({ createdAt: -1 });
-    res.status(200).json(blogs);
+    const blogs = await Blog.find().sort({
+      createdAt: -1,
+    });
+
+    return res.status(200).json(blogs);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Get blogs error:", error);
+
+    return res.status(500).json({
+      message: "Unable to fetch blogs.",
+    });
   }
 });
 
-// Get a single blog - Public
+// GET SINGLE BLOG (PUBLIC)
 router.get("/:id", async (req, res) => {
   try {
     const blog = await Blog.findById(req.params.id);
 
     if (!blog) {
       return res.status(404).json({
-        message: "Blog not found",
+        message: "Blog not found.",
       });
     }
 
-    res.status(200).json(blog);
+    return res.status(200).json(blog);
   } catch (error) {
-    res.status(500).json({
+    console.error("Get single blog error:", error);
+
+    return res.status(500).json({
       message: error.message,
     });
   }
 });
 
-// Delete a blog - Admin only
+// UPDATE BLOG
+router.put(
+  "/:id",
+  authMiddleware,
+  upload.single("image"),
+  async (req, res) => {
+    try {
+      const {
+        title,
+        content,
+        category,
+        projectUrl,
+      } = req.body || {};
+
+      const updateData = {
+        title,
+        content,
+        category: category || "General",
+        projectUrl: projectUrl || "",
+      };
+
+      // Upload a new image only if selected
+      if (req.file) {
+        const uploadedImage = await uploadToCloudinary(
+          req.file.buffer
+        );
+
+        updateData.image = uploadedImage.secure_url;
+      }
+
+      const updatedBlog = await Blog.findByIdAndUpdate(
+        req.params.id,
+        updateData,
+        {
+          new: true,
+          runValidators: true,
+        }
+      );
+
+      if (!updatedBlog) {
+        return res.status(404).json({
+          message: "Blog not found.",
+        });
+      }
+
+      return res.status(200).json({
+        message: "Blog updated successfully.",
+        blog: updatedBlog,
+      });
+    } catch (error) {
+      console.error("Update blog error:", error);
+
+      return res.status(500).json({
+        message: error.message || "Unable to update blog.",
+      });
+    }
+  }
+);
+
+// DELETE BLOG
 router.delete("/:id", authMiddleware, async (req, res) => {
   try {
-    const deletedBlog = await Blog.findByIdAndDelete(req.params.id);
+    const deletedBlog = await Blog.findByIdAndDelete(
+      req.params.id
+    );
 
     if (!deletedBlog) {
       return res.status(404).json({
-        message: "Blog not found",
+        message: "Blog not found.",
       });
     }
 
-    res.status(200).json({
-      message: "Blog deleted successfully",
+    return res.status(200).json({
+      message: "Blog deleted successfully.",
     });
   } catch (error) {
-    res.status(500).json({
-      message: error.message,
-    });
-  }
-});
+    console.error("Delete blog error:", error);
 
-// Update a blog - Admin only
-router.put("/:id", authMiddleware, async (req, res) => {
-  try {
-    const { title, content, image, category } = req.body;
-
-    const updatedBlog = await Blog.findByIdAndUpdate(
-      req.params.id,
-      { title, content, image, category },
-      { new: true, runValidators: true }
-    );
-
-    if (!updatedBlog) {
-      return res.status(404).json({
-        message: "Blog not found",
-      });
-    }
-
-    res.status(200).json({
-      message: "Blog updated successfully",
-      blog: updatedBlog,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: error.message,
+    return res.status(500).json({
+      message: error.message || "Unable to delete blog.",
     });
   }
 });

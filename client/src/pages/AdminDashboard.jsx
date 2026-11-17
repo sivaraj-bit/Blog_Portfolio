@@ -13,6 +13,7 @@ const initialForm = {
   content: "",
   image: "",
   category: "Technology",
+  projectUrl: "",
 };
 
 function AdminDashboard() {
@@ -27,9 +28,12 @@ function AdminDashboard() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(initialForm);
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
   const [search, setSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("All");
 
-  // Get a fresh Firebase ID token
+  // Authentication
   const getAuthConfig = async () => {
     const user = auth.currentUser;
 
@@ -47,7 +51,7 @@ function AdminDashboard() {
     };
   };
 
-  // Check authentication and fetch blogs
+  // Fetch blogs
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
@@ -69,8 +73,8 @@ function AdminDashboard() {
       } catch (err) {
         setError(
           err.response?.data?.message ||
-            err.message ||
-            "Unable to load blogs."
+          err.message ||
+          "Unable to load blogs."
         );
       } finally {
         setLoading(false);
@@ -80,20 +84,38 @@ function AdminDashboard() {
     return () => unsubscribe();
   }, [navigate]);
 
-  // Search blogs
+  // Dynamic categories
+  const categories = useMemo(() => {
+    return [
+      "All",
+      ...new Set(
+        blogs
+          .map((blog) => blog.category || "General")
+          .filter(Boolean)
+      ),
+    ];
+  }, [blogs]);
+
+  // Filter and search
   const filteredBlogs = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    if (!query) return blogs;
+    return blogs.filter((blog) => {
+      const matchesCategory =
+        selectedCategory === "All" ||
+        (blog.category || "General") === selectedCategory;
 
-    return blogs.filter((blog) =>
-      blog.title?.toLowerCase().includes(query) ||
-      blog.category?.toLowerCase().includes(query) ||
-      blog.content?.toLowerCase().includes(query)
-    );
-  }, [blogs, search]);
+      const matchesSearch =
+        !query ||
+        blog.title?.toLowerCase().includes(query) ||
+        blog.category?.toLowerCase().includes(query) ||
+        blog.content?.toLowerCase().includes(query);
 
-  // Handle form inputs
+      return matchesCategory && matchesSearch;
+    });
+  }, [blogs, search, selectedCategory]);
+
+  // Form input
   const handleChange = (e) => {
     setForm((prev) => ({
       ...prev,
@@ -101,10 +123,54 @@ function AdminDashboard() {
     }));
   };
 
-  // Open create form
+  // Image upload
+  const handleImageChange = (e) => {
+    const file = e.target.files?.[0];
+
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setError("Please select a valid image.");
+      e.target.value = "";
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Image size must be less than 5 MB.");
+      e.target.value = "";
+      return;
+    }
+
+    setError("");
+    setImageFile(file);
+
+    setImagePreview((previousPreview) => {
+      if (previousPreview?.startsWith("blob:")) {
+        URL.revokeObjectURL(previousPreview);
+      }
+
+      return URL.createObjectURL(file);
+    });
+  };
+
+  // Reset image
+  const resetImage = () => {
+    setImageFile(null);
+
+    setImagePreview((previousPreview) => {
+      if (previousPreview?.startsWith("blob:")) {
+        URL.revokeObjectURL(previousPreview);
+      }
+
+      return "";
+    });
+  };
+
+  // Create form
   const openCreateForm = () => {
     setEditingId(null);
     setForm(initialForm);
+    resetImage();
     setError("");
     setSuccess("");
     setShowForm(true);
@@ -112,7 +178,7 @@ function AdminDashboard() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Open edit form
+  // Edit form
   const handleEdit = (blog) => {
     setEditingId(blog._id);
 
@@ -121,7 +187,11 @@ function AdminDashboard() {
       content: blog.content || "",
       image: blog.image || "",
       category: blog.category || "Technology",
+      projectUrl: blog.projectUrl || "",
     });
+
+    resetImage();
+    setImagePreview(blog.image || "");
 
     setError("");
     setSuccess("");
@@ -130,7 +200,7 @@ function AdminDashboard() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Create or update blog
+  // Publish or update
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -139,12 +209,27 @@ function AdminDashboard() {
       setError("");
       setSuccess("");
 
+      if (!editingId && !imageFile) {
+        setError("Please select a cover image.");
+        return;
+      }
+
       const config = await getAuthConfig();
+      const formData = new FormData();
+
+      formData.append("title", form.title);
+      formData.append("content", form.content);
+      formData.append("category", form.category);
+      formData.append("projectUrl", form.projectUrl);
+
+      if (imageFile) {
+        formData.append("image", imageFile);
+      }
 
       if (editingId) {
         const response = await axios.put(
           `${BLOGS_API_URL}/${editingId}`,
-          form,
+          formData,
           config
         );
 
@@ -160,7 +245,7 @@ function AdminDashboard() {
       } else {
         const response = await axios.post(
           BLOGS_API_URL,
-          form,
+          formData,
           config
         );
 
@@ -171,6 +256,7 @@ function AdminDashboard() {
       }
 
       setForm(initialForm);
+      resetImage();
       setEditingId(null);
       setShowForm(false);
 
@@ -178,18 +264,18 @@ function AdminDashboard() {
     } catch (err) {
       setError(
         err.response?.data?.message ||
-          err.message ||
-          "Something went wrong. Please try again."
+        err.message ||
+        "Something went wrong. Please try again."
       );
     } finally {
       setSaving(false);
     }
   };
 
-  // Delete blog
+  // Delete
   const handleDelete = async (id) => {
     const confirmed = window.confirm(
-      "Are you sure you want to delete this story? This action cannot be undone."
+      "Are you sure you want to delete this story?"
     );
 
     if (!confirmed) return;
@@ -207,19 +293,19 @@ function AdminDashboard() {
     } catch (err) {
       setError(
         err.response?.data?.message ||
-          err.message ||
-          "Unable to delete story."
+        err.message ||
+        "Unable to delete story."
       );
     }
   };
 
-  // Firebase logout
+  // Logout
   const handleLogout = async () => {
     try {
       await signOut(auth);
       localStorage.removeItem("adminToken");
       navigate("/admin/login", { replace: true });
-    } catch (err) {
+    } catch {
       setError("Unable to log out. Please try again.");
     }
   };
@@ -229,29 +315,40 @@ function AdminDashboard() {
     setShowForm(false);
     setEditingId(null);
     setForm(initialForm);
+    resetImage();
     setError("");
   };
 
   return (
-    <div className="min-h-screen bg-[#FAF3EA] text-[#3D302B]">
+    <div className="min-h-screen bg-[#F3E8D2] text-[#34251F]">
+
       <style>{`
-        @keyframes appear {
-          from {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap');
+
+        .dashboard-page {
+          font-family: 'DM Sans', sans-serif;
         }
 
-        .page-enter {
-          animation: appear 0.5s ease both;
+        .serif-heading {
+          font-family: 'Playfair Display', serif;
         }
 
-        .story-enter {
-          animation: appear 0.4s ease both;
+        .dashboard-nav {
+          box-shadow: 0 5px 20px rgba(74, 48, 33, 0.07);
+        }
+
+        .dashboard-row {
+          background: rgba(225, 211, 186, 0.65);
+          transition: background 0.25s ease, transform 0.25s ease;
+        }
+
+        .dashboard-row:hover {
+          background: rgba(232, 218, 194, 0.95);
+          transform: translateY(-2px);
+        }
+
+        .filter-pill {
+          transition: all 0.2s ease;
         }
 
         .editor-input {
@@ -264,353 +361,428 @@ function AdminDashboard() {
           outline: none;
         }
 
-        .story-row {
-          transition: background-color 0.2s ease;
+        .dashboard-enter {
+          animation: dashboardAppear 0.4s ease both;
         }
 
-        .story-row:hover {
-          background-color: rgba(230, 185, 159, 0.12);
-        }
-
-        .action-link {
-          transition: color 0.2s ease;
+        @keyframes dashboardAppear {
+          from {
+            opacity: 0;
+            transform: translateY(12px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
 
         @media (prefers-reduced-motion: reduce) {
-          .page-enter,
-          .story-enter {
-            animation: none;
-          }
-
-          .editor-input,
-          .story-row,
-          .action-link {
-            transition: none;
+          *, *::before, *::after {
+            animation-duration: 0.01ms !important;
+            transition-duration: 0.01ms !important;
           }
         }
       `}</style>
 
-      {/* HEADER */}
-      <header className="border-b border-[#E6B99F]/70">
-        <div className="max-w-6xl mx-auto px-5 sm:px-8 h-[76px] flex items-center justify-between">
-          <div>
-            <h1 className="font-serif text-2xl tracking-tight text-[#783F32]">
-              The Journal
-            </h1>
-            <p className="text-[10px] tracking-[0.2em] uppercase text-[#9A8175] mt-0.5">
-              Publishing studio
-            </p>
-          </div>
+      <div className="dashboard-page">
 
-          <nav className="flex items-center gap-5 sm:gap-7">
+        {/* FLOATING NAVIGATION */}
+        <header className="px-4 pt-5">
+          <div className="dashboard-nav max-w-4xl mx-auto min-h-[70px] rounded-full border border-[#E4D5B9] bg-[#F5EBD9]/90 px-5 sm:px-8 flex items-center justify-between gap-4">
+
             <button
               onClick={() => navigate("/")}
-              className="hidden sm:block text-sm text-[#78645A] hover:text-[#783F32] transition-colors"
+              className="serif-heading text-xl sm:text-2xl font-semibold tracking-wide text-[#783F32]"
             >
-              View website ↗
+              The Journal<span className="text-[#B96F50]">.</span>
             </button>
+
+            <nav className="hidden md:flex items-center gap-8 text-sm text-[#796A59]">
+              <button
+                onClick={() => navigate("/")}
+                className="hover:text-[#783F32] transition"
+              >
+                Website
+              </button>
+
+              <button
+                onClick={() =>
+                  document.getElementById("story-library")?.scrollIntoView({
+                    behavior: "smooth",
+                  })
+                }
+                className="hover:text-[#783F32] transition"
+              >
+                My Stories
+              </button>
+
+              <button
+                onClick={openCreateForm}
+                className="hover:text-[#783F32] transition"
+              >
+                Write
+              </button>
+            </nav>
 
             <button
               onClick={handleLogout}
-              className="text-sm text-[#783F32] border-b border-[#B96F50] pb-1 hover:text-[#B96F50] transition-colors"
+              className="rounded-full bg-[#641D26] text-[#FFF8EB] px-6 py-3 text-sm font-semibold hover:bg-[#783F32] transition"
             >
               Log out
             </button>
-          </nav>
-        </div>
-      </header>
-
-      <main className="max-w-6xl mx-auto px-5 sm:px-8 py-12 sm:py-16">
-        {/* INTRODUCTION */}
-        <section className="page-enter flex flex-col sm:flex-row sm:items-end justify-between gap-6 mb-14">
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-[#B96F50] mb-4">
-              Your writing space
-            </p>
-
-            <h2 className="font-serif text-4xl sm:text-5xl text-[#783F32] tracking-tight">
-              Good stories begin here.
-            </h2>
-
-            <p className="text-sm sm:text-base text-[#927B6F] mt-4 max-w-lg leading-7">
-              Create, edit and keep track of the ideas you want to share with the world.
-            </p>
           </div>
+        </header>
 
-          <button
-            onClick={openCreateForm}
-            className="shrink-0 bg-[#783F32] text-white px-6 py-3 text-sm hover:bg-[#9A5543] transition-colors"
-          >
-            + Write a story
-          </button>
-        </section>
+        <main className="max-w-5xl mx-auto px-5 sm:px-8 pt-12 sm:pt-16 pb-20">
 
-        {/* NOTIFICATIONS */}
-        {success && (
-          <div className="page-enter mb-7 py-3 border-y border-[#B96F50]/40 text-sm text-[#783F32] flex justify-between gap-4">
-            <span>{success}</span>
-            <button
-              onClick={() => setSuccess("")}
-              aria-label="Dismiss notification"
-              className="text-lg leading-none hover:text-[#B96F50]"
-            >
-              ×
-            </button>
-          </div>
-        )}
+          {/* DASHBOARD HEADING */}
+          <section className="dashboard-enter flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-9">
 
-        {error && !showForm && (
-          <div className="page-enter mb-7 py-3 border-y border-red-200 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+            <div>
+              <p className="text-xs tracking-[0.25em] text-[#A27D62] uppercase mb-2">
+                Publishing studio
+              </p>
 
-        {/* EDITOR */}
-        {showForm && (
-          <section
-            id="blog-form"
-            className="page-enter mb-16 border-y border-[#D8AE98] py-8 sm:py-10"
-          >
-            <div className="flex justify-between items-start gap-4 mb-9">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-[#B96F50] mb-3">
-                  {editingId ? "Editing" : "New entry"}
-                </p>
+              <h1 className="serif-heading text-3xl sm:text-4xl tracking-[0.12em] text-[#641D26]">
+                DASHBOARD
+              </h1>
 
-                <h3 className="font-serif text-3xl sm:text-4xl text-[#783F32]">
-                  {editingId ? "Shape your story." : "Put your thoughts into words."}
-                </h3>
-
-                <p className="text-sm text-[#927B6F] mt-3">
-                  Take your time. Every detail matters.
-                </p>
-              </div>
-
-              <button
-                onClick={closeForm}
-                aria-label="Close form"
-                className="text-2xl text-[#927B6F] hover:text-[#783F32]"
-              >
-                ×
-              </button>
+              <p className="text-sm text-[#8B7965] mt-3">
+                Manage your stories and share your ideas.
+              </p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-7">
-              <div>
-                <label className="block text-sm text-[#783F32] mb-2">
-                  Title
-                </label>
+            <button
+              onClick={openCreateForm}
+              className="self-start sm:self-auto rounded-full bg-[#641D26] text-[#FFF8EB] px-7 py-4 text-sm font-semibold hover:bg-[#783F32] hover:-translate-y-0.5 transition"
+            >
+              <span className="text-lg mr-2">+</span>
+              New Post
+            </button>
+          </section>
 
-                <input
-                  type="text"
-                  name="title"
-                  value={form.title}
-                  onChange={handleChange}
-                  placeholder="Give your story a title"
-                  required
-                  className="editor-input w-full bg-white/50 border border-[#D8AE98] px-4 py-3.5 text-sm text-[#3D302B] placeholder:text-[#B9A59A]"
-                />
-              </div>
+          {/* SUMMARY */}
+          <div className="flex flex-wrap gap-x-8 gap-y-2 mb-8 text-sm text-[#82715F]">
+            <p>
+              <span className="font-semibold text-[#641D26]">
+                {blogs.length}
+              </span>{" "}
+              {blogs.length === 1 ? "story" : "stories"} in your collection
+            </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <p>
+              <span className="font-semibold text-[#641D26]">
+                {categories.length - 1}
+              </span>{" "}
+              {categories.length - 1 === 1 ? "category" : "categories"}
+            </p>
+          </div>
+
+          {/* NOTIFICATIONS */}
+          {success && (
+            <div className="dashboard-enter mb-6 rounded-xl bg-[#E5E8D6] px-5 py-4 text-sm text-[#435B36] flex justify-between gap-4">
+              <span>✓ {success}</span>
+              <button onClick={() => setSuccess("")}>×</button>
+            </div>
+          )}
+
+          {error && !showForm && (
+            <div className="mb-6 rounded-xl bg-[#F4DDDA] px-5 py-4 text-sm text-[#9B3434]">
+              {error}
+            </div>
+          )}
+
+          {/* CREATE / EDIT FORM */}
+          {showForm && (
+            <section
+              id="blog-form"
+              className="dashboard-enter mb-12 rounded-3xl border border-[#E0CFB1] bg-[#F8EFDF] p-5 sm:p-9 shadow-sm"
+            >
+              <div className="flex justify-between gap-4 mb-8">
                 <div>
-                  <label className="block text-sm text-[#783F32] mb-2">
-                    Category
-                  </label>
+                  <p className="text-xs uppercase tracking-[0.2em] text-[#A27D62] mb-2">
+                    {editingId ? "Edit story" : "Create something new"}
+                  </p>
 
-                  <select
-                    name="category"
-                    value={form.category}
-                    onChange={handleChange}
-                    className="editor-input w-full bg-white/50 border border-[#D8AE98] px-4 py-3.5 text-sm text-[#3D302B]"
-                  >
-                    <option>Technology</option>
-                    <option>Programming</option>
-                    <option>Lifestyle</option>
-                    <option>Travel</option>
-                    <option>Personal</option>
-                    <option>Education</option>
-                    <option>General</option>
-                  </select>
+                  <h2 className="serif-heading text-3xl text-[#641D26]">
+                    {editingId ? "Update your post" : "New post"}
+                  </h2>
                 </div>
 
+                <button
+                  onClick={closeForm}
+                  aria-label="Close form"
+                  className="text-2xl text-[#8B7965] hover:text-[#641D26]"
+                >
+                  ×
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmit} className="space-y-6">
+
                 <div>
-                  <label className="block text-sm text-[#783F32] mb-2">
-                    Cover image URL
+                  <label className="block text-sm font-medium text-[#641D26] mb-2">
+                    Story title
+                  </label>
+
+                  <input
+                    type="text"
+                    name="title"
+                    value={form.title}
+                    onChange={handleChange}
+                    placeholder="Give your story a title..."
+                    required
+                    className="editor-input w-full rounded-xl border border-[#DCC9A9] bg-[#FFF9EF] px-4 py-3.5 text-sm"
+                  />
+                </div>
+
+                <div className="grid sm:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-[#641D26] mb-2">
+                      Category
+                    </label>
+
+                    <select
+                      name="category"
+                      value={form.category}
+                      onChange={handleChange}
+                      className="editor-input w-full rounded-xl border border-[#DCC9A9] bg-[#FFF9EF] px-4 py-3.5 text-sm"
+                    >
+                      <option>Technology</option>
+                      <option>Programming</option>
+                      <option>Lifestyle</option>
+                      <option>Travel</option>
+                      <option>Personal</option>
+                      <option>Education</option>
+                      <option>General</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-[#641D26] mb-2">
+                      Cover image
+                    </label>
+
+                    <input
+                      type="file"
+                      name="image"
+                      accept="image/*"
+                      onChange={handleImageChange}
+                      required={!editingId}
+                      className="editor-input w-full rounded-xl border border-[#DCC9A9] bg-[#FFF9EF] px-3 py-3 text-sm"
+                    />
+
+                    <p className="text-xs text-[#9A846D] mt-2">
+                      Image file, maximum 5 MB.
+                    </p>
+                  </div>
+                </div>
+
+                {imagePreview && (
+                  <div>
+                    <p className="text-xs text-[#8B7965] mb-2">
+                      Image preview
+                    </p>
+
+                    <img
+                      src={imagePreview}
+                      alt="Cover preview"
+                      className="w-full max-w-sm h-48 object-cover rounded-xl"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-[#641D26] mb-2">
+                    Project URL
                   </label>
 
                   <input
                     type="url"
-                    name="image"
-                    value={form.image}
+                    name="projectUrl"
+                    value={form.projectUrl}
                     onChange={handleChange}
-                    placeholder="https://example.com/image.jpg"
-                    className="editor-input w-full bg-white/50 border border-[#D8AE98] px-4 py-3.5 text-sm text-[#3D302B] placeholder:text-[#B9A59A]"
+                    placeholder="https://your-project.vercel.app"
+                    className="editor-input w-full rounded-xl border border-[#DCC9A9] bg-[#FFF9EF] px-4 py-3.5 text-sm"
                   />
                 </div>
-              </div>
 
-              {form.image && (
-                <div className="page-enter">
-                  <p className="text-xs text-[#927B6F] mb-2">
-                    Image preview
-                  </p>
+                <div>
+                  <label className="block text-sm font-medium text-[#641D26] mb-2">
+                    Story content
+                  </label>
 
-                  <img
-                    src={form.image}
-                    alt="Story cover preview"
-                    className="w-full max-w-sm h-44 object-cover"
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
+                  <textarea
+                    name="content"
+                    value={form.content}
+                    onChange={handleChange}
+                    placeholder="Start writing your story..."
+                    rows={10}
+                    required
+                    className="editor-input w-full rounded-xl border border-[#DCC9A9] bg-[#FFF9EF] px-4 py-4 text-sm leading-7 resize-y"
                   />
                 </div>
-              )}
 
+                {error && (
+                  <p className="text-sm text-red-700">{error}</p>
+                )}
+
+                <div className="flex flex-wrap items-center gap-4 pt-2">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="rounded-full bg-[#641D26] text-white px-8 py-3.5 text-sm font-semibold hover:bg-[#783F32] disabled:opacity-60 transition"
+                  >
+                    {saving
+                      ? "Saving..."
+                      : editingId
+                      ? "Save changes"
+                      : "Publish post"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={closeForm}
+                    className="text-sm text-[#82715F] hover:text-[#641D26]"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </section>
+          )}
+
+          {/* STORY LIBRARY */}
+          <section id="story-library" className="dashboard-enter">
+
+            <div className="flex items-end justify-between gap-4 mb-6">
               <div>
-                <label className="block text-sm text-[#783F32] mb-2">
-                  Content
-                </label>
-
-                <textarea
-                  name="content"
-                  value={form.content}
-                  onChange={handleChange}
-                  placeholder="Start writing here..."
-                  rows={10}
-                  required
-                  className="editor-input w-full bg-white/50 border border-[#D8AE98] px-4 py-4 text-sm text-[#3D302B] placeholder:text-[#B9A59A] resize-y leading-7"
-                />
-              </div>
-
-              {error && (
-                <p className="text-sm text-red-700 border-l-2 border-red-400 pl-3">
-                  {error}
+                <p className="text-xs uppercase tracking-[0.2em] text-[#A27D62] mb-2">
+                  Your collection
                 </p>
-              )}
 
-              <div className="flex flex-wrap items-center gap-5 pt-2">
+                <h2 className="serif-heading text-2xl sm:text-3xl text-[#641D26]">
+                  Manage Posts
+                </h2>
+              </div>
+
+              <span className="text-xs text-[#927E69]">
+                {filteredBlogs.length} results
+              </span>
+            </div>
+
+            {/* CATEGORY FILTERS */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-5">
+              {categories.map((category) => {
+                const active = selectedCategory === category;
+
+                return (
+                  <button
+                    key={category}
+                    onClick={() => setSelectedCategory(category)}
+                    className={`filter-pill shrink-0 rounded-full px-5 py-2.5 text-sm ${
+                      active
+                        ? "bg-[#641D26] text-[#FFF8EB] font-semibold"
+                        : "bg-[#E9DEC9] text-[#786A58] hover:bg-[#E2D2B7]"
+                    }`}
+                  >
+                    {category}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* SEARCH */}
+            <div className="flex items-center gap-3 mb-7 max-w-md rounded-full border border-[#E0D0B5] bg-[#F7EDDC] px-5">
+              <span className="text-[#9A846D]">⌕</span>
+
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Find a story..."
+                aria-label="Search stories"
+                className="w-full bg-transparent py-3 text-sm outline-none placeholder:text-[#A9947D]"
+              />
+
+              {search && (
                 <button
-                  type="submit"
-                  disabled={saving}
-                  className="bg-[#783F32] text-white px-7 py-3 text-sm hover:bg-[#9A5543] disabled:opacity-60 transition-colors"
+                  onClick={() => setSearch("")}
+                  aria-label="Clear search"
+                  className="text-[#927E69]"
                 >
-                  {saving
-                    ? "Saving..."
-                    : editingId
-                    ? "Save changes"
-                    : "Publish story"}
+                  ×
                 </button>
+              )}
+            </div>
+
+            {/* LOADING */}
+            {loading ? (
+              <div className="py-20 text-center text-sm text-[#927E69]">
+                Loading your stories...
+              </div>
+            ) : blogs.length === 0 ? (
+              <div className="rounded-2xl bg-[#E9DEC9] px-6 py-16 text-center">
+                <h3 className="serif-heading text-2xl text-[#641D26]">
+                  Your journal starts here.
+                </h3>
+
+                <p className="text-sm text-[#927E69] mt-3">
+                  You haven't published any stories yet.
+                </p>
 
                 <button
-                  type="button"
-                  onClick={closeForm}
-                  className="text-sm text-[#927B6F] hover:text-[#783F32] transition-colors"
+                  onClick={openCreateForm}
+                  className="mt-6 rounded-full bg-[#641D26] text-white px-6 py-3 text-sm"
                 >
-                  Cancel
+                  + Create your first post
                 </button>
               </div>
-            </form>
-          </section>
-        )}
+            ) : filteredBlogs.length === 0 ? (
+              <div className="py-16 text-center rounded-2xl bg-[#E9DEC9]">
+                <h3 className="serif-heading text-xl text-[#641D26]">
+                  No matching stories.
+                </h3>
 
-        {/* STORY LIBRARY */}
-        <section className="page-enter">
-          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-5 border-b border-[#D8AE98] pb-5 mb-6">
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-[#B96F50] mb-3">
-                The collection
-              </p>
-
-              <h3 className="font-serif text-3xl text-[#783F32]">
-                Your stories
-              </h3>
-            </div>
-
-            <p className="text-sm text-[#927B6F]">
-              {blogs.length} {blogs.length === 1 ? "story" : "stories"} published
-            </p>
-          </div>
-
-          {/* SEARCH */}
-          <div className="mb-7 max-w-md">
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search your stories..."
-              aria-label="Search stories"
-              className="editor-input w-full bg-transparent border-b border-[#D8AE98] py-3 text-sm text-[#3D302B] placeholder:text-[#A99488]"
-            />
-          </div>
-
-          {/* LOADING */}
-          {loading ? (
-            <div className="py-20 text-center text-sm text-[#927B6F]">
-              Loading your stories...
-            </div>
-          ) : blogs.length === 0 ? (
-            /* EMPTY STATE */
-            <div className="py-16 border-y border-[#D8AE98]/70 text-center">
-              <h4 className="font-serif text-2xl text-[#783F32]">
-                A blank page is a good beginning.
-              </h4>
-
-              <p className="text-sm text-[#927B6F] mt-3">
-                Your first story is waiting to be written.
-              </p>
-
-              <button
-                onClick={openCreateForm}
-                className="mt-6 text-sm text-[#B96F50] border-b border-[#B96F50] pb-1 hover:text-[#783F32]"
-              >
-                Write your first story →
-              </button>
-            </div>
-          ) : filteredBlogs.length === 0 ? (
-            /* NO SEARCH RESULTS */
-            <div className="py-16 text-center border-y border-[#D8AE98]/70">
-              <p className="font-serif text-xl text-[#783F32]">
-                No stories found.
-              </p>
-
-              <p className="text-sm text-[#927B6F] mt-2">
-                Try a different search term.
-              </p>
-
-              <button
-                onClick={() => setSearch("")}
-                className="mt-4 text-sm text-[#B96F50] border-b border-[#B96F50] pb-1"
-              >
-                Clear search
-              </button>
-            </div>
-          ) : (
-            /* BLOG LIST */
-            <div>
-              {filteredBlogs.map((blog) => (
-                <article
-                  key={blog._id}
-                  className="story-row story-enter flex flex-col sm:flex-row gap-5 sm:gap-7 py-7 px-3 border-b border-[#E6B99F]/70"
+                <button
+                  onClick={() => {
+                    setSearch("");
+                    setSelectedCategory("All");
+                  }}
+                  className="mt-4 text-sm text-[#9A5543] underline underline-offset-4"
                 >
-                  {blog.image && (
-                    <img
-                      src={blog.image}
-                      alt={blog.title}
-                      className="w-full sm:w-32 h-44 sm:h-28 object-cover shrink-0"
-                    />
-                  )}
+                  Clear filters
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredBlogs.map((blog) => (
+                  <article
+                    key={blog._id}
+                    className="dashboard-row dashboard-enter rounded-2xl px-4 sm:px-6 py-5 flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6"
+                  >
+                    {/* IMAGE */}
+                    {blog.image && (
+                      <img
+                        src={blog.image}
+                        alt={blog.title}
+                        className="w-full sm:w-[105px] h-36 sm:h-[76px] rounded-xl object-cover shrink-0"
+                      />
+                    )}
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-3 mb-3">
-                      <span className="text-[10px] uppercase tracking-[0.16em] text-[#B96F50]">
-                        {blog.category || "General"}
-                      </span>
+                    {/* STORY DETAILS */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2.5 mb-2">
+                        <span className="rounded-md bg-[#B7A68B] text-white px-3 py-1 text-[10px] font-semibold tracking-wider uppercase">
+                          {blog.category || "General"}
+                        </span>
 
-                      {blog.createdAt && (
-                        <>
-                          <span className="text-[#C6A18F]">/</span>
-                          <span className="text-xs text-[#A18B7F]">
+                        <span className="text-[10px] uppercase tracking-wider text-[#567B45] font-bold">
+                          Published
+                        </span>
+
+                        {blog.createdAt && (
+                          <span className="text-xs text-[#9A8975]">
                             {new Date(blog.createdAt).toLocaleDateString(
                               "en-IN",
                               {
@@ -620,46 +792,69 @@ function AdminDashboard() {
                               }
                             )}
                           </span>
-                        </>
+                        )}
+                      </div>
+
+                      <h3 className="text-base sm:text-lg font-medium text-[#34251F] leading-snug break-words">
+                        {blog.title}
+                      </h3>
+
+                      {blog.projectUrl && (
+                        <a
+                          href={blog.projectUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-block mt-2 text-xs text-[#9A5543] hover:text-[#641D26] underline underline-offset-4"
+                        >
+                          View Project ↗
+                        </a>
                       )}
                     </div>
 
-                    <h4 className="font-serif text-xl sm:text-2xl text-[#783F32] leading-snug">
-                      {blog.title}
-                    </h4>
+                    {/* ACTIONS */}
+                    <div className="flex items-center justify-end gap-2 sm:gap-3 border-t sm:border-t-0 border-[#D7C5A8] pt-3 sm:pt-0">
 
-                    <p className="text-sm text-[#927B6F] mt-2 leading-6 line-clamp-2">
-                      {blog.content}
-                    </p>
-                  </div>
+                      <button
+                        onClick={() => navigate(`/blog/${blog._id}`)}
+                        title="View story"
+                        aria-label="View story"
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-[#857762] hover:bg-[#E4D4B9] hover:text-[#641D26] transition"
+                      >
+                        <span className="text-lg">↗</span>
+                      </button>
 
-                  <div className="flex sm:flex-col items-center sm:items-end justify-start sm:justify-center gap-5 sm:gap-3 sm:min-w-[65px]">
-                    <button
-                      onClick={() => handleEdit(blog)}
-                      className="action-link text-sm text-[#B96F50] hover:text-[#783F32]"
-                    >
-                      Edit
-                    </button>
+                      <button
+                        onClick={() => handleEdit(blog)}
+                        title="Edit story"
+                        aria-label="Edit story"
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-[#857762] hover:bg-[#E4D4B9] hover:text-[#641D26] transition"
+                      >
+                        <span className="text-lg">✎</span>
+                      </button>
 
-                    <button
-                      onClick={() => handleDelete(blog._id)}
-                      className="action-link text-sm text-[#A65A4D] hover:text-red-800"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
+                      <button
+                        onClick={() => handleDelete(blog._id)}
+                        title="Delete story"
+                        aria-label="Delete story"
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-[#A54B55] hover:bg-[#F0D9D8] hover:text-red-800 transition"
+                      >
+                        <span className="text-lg">♧</span>
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
 
-        {/* FOOTER */}
-        <footer className="mt-20 pt-5 border-t border-[#D8AE98]/70 flex flex-col sm:flex-row justify-between gap-2 text-xs text-[#A18B7F]">
-          <p>© {new Date().getFullYear()} The Journal</p>
-          <p>A space for stories worth sharing.</p>
-        </footer>
-      </main>
+          {/* FOOTER */}
+          <footer className="mt-16 pt-6 border-t border-[#DCC9A9] flex flex-col sm:flex-row justify-between gap-2 text-xs text-[#9A8975]">
+            <p>© {new Date().getFullYear()} The Journal</p>
+            <p>A space for stories worth sharing.</p>
+          </footer>
+
+        </main>
+      </div>
     </div>
   );
 }

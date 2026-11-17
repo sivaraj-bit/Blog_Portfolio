@@ -1,3 +1,4 @@
+
 const mongoose = require("mongoose");
 
 const blogSchema = new mongoose.Schema(
@@ -18,6 +19,11 @@ const blogSchema = new mongoose.Schema(
     category: {
       type: String,
       default: "General",
+    },
+    projectUrl: {
+      type: String,
+      default: "",
+      trim: true,
     },
   },
   { timestamps: true }
