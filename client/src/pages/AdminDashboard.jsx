@@ -386,9 +386,9 @@ function AdminDashboard() {
 
       <div className="dashboard-page">
 
-        {/* FLOATING NAVIGATION */}
-        <header className="px-4 pt-5">
-          <div className="dashboard-nav max-w-4xl mx-auto min-h-[70px] rounded-full border border-[#E4D5B9] bg-[#F5EBD9]/90 px-5 sm:px-8 flex items-center justify-between gap-4">
+        {/* FIXED NAVIGATION */}
+        <header className="fixed top-0 left-0 w-full z-50 px-4 pt-4">
+          <div className="dashboard-nav max-w-4xl mx-auto min-h-[70px] rounded-full border border-[#E4D5B9] bg-[#F5EBD9]/95 backdrop-blur-md px-5 sm:px-8 flex items-center justify-between gap-4">
 
             <button
               onClick={() => navigate("/")}
@@ -433,7 +433,7 @@ function AdminDashboard() {
           </div>
         </header>
 
-        <main className="max-w-5xl mx-auto px-5 sm:px-8 pt-12 sm:pt-16 pb-20">
+        <main className="max-w-5xl mx-auto px-5 sm:px-8 pt-28 sm:pt-32 pb-20">
 
           {/* DASHBOARD HEADING */}
           <section className="dashboard-enter flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-9">
